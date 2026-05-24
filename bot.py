@@ -15,6 +15,12 @@ regions = [
     ["Surxondaryo", "Navoiy"],
 ]
 
+cancel_keyboard = ReplyKeyboardMarkup(
+    [["❌ Bekor qilish"]],
+    resize_keyboard=True
+)
+
+
 def save_girl(telegram_id, name, age, region, bio, contact, photo):
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
@@ -24,6 +30,7 @@ def save_girl(telegram_id, name, age, region, bio, contact, photo):
     """, (telegram_id, name, age, region, bio, contact, photo))
     conn.commit()
     conn.close()
+
 
 def get_girls_by_region(region):
     conn = sqlite3.connect("users.db")
@@ -37,6 +44,7 @@ def get_girls_by_region(region):
     conn.close()
     return data
 
+
 def get_girl_contact(girl_id):
     conn = sqlite3.connect("users.db")
     cur = conn.cursor()
@@ -45,32 +53,53 @@ def get_girl_contact(girl_id):
     conn.close()
     return data
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
     await update.message.reply_text(
         "Kim sifatida kirmoqchisiz?",
-        reply_markup=ReplyKeyboardMarkup([["👦 O‘g‘il", "👧 Qiz"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            [["👦 O‘g‘il", "👧 Qiz"]],
+            resize_keyboard=True
+        )
     )
     return GENDER
 
+
 async def gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     context.user_data["gender"] = update.message.text
+
     await update.message.reply_text(
         "Viloyatingizni tanlang:",
-        reply_markup=ReplyKeyboardMarkup(regions, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(regions + [["❌ Bekor qilish"]], resize_keyboard=True)
     )
     return REGION
 
+
 async def region(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     context.user_data["region"] = update.message.text
 
     if context.user_data["gender"] == "👧 Qiz":
-        await update.message.reply_text("Rasmingizni yuboring 📸", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "Rasmingizni yuboring 📸",
+            reply_markup=cancel_keyboard
+        )
         return PHOTO
 
     girls = get_girls_by_region(context.user_data["region"])
 
     if not girls:
-        await update.message.reply_text("Bu viloyatda hozircha qizlar yo‘q.", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "Bu viloyatda hozircha qizlar yo‘q.",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return ConversationHandler.END
 
     girl_id, name, age, girl_region, bio, photo = girls[0]
@@ -95,17 +124,37 @@ async def region(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+
 async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     context.user_data["photo"] = update.message.photo[-1].file_id
-    await update.message.reply_text("O‘zingiz haqingizda bio yozing 📝")
+
+    await update.message.reply_text(
+        "O‘zingiz haqingizda bio yozing 📝",
+        reply_markup=cancel_keyboard
+    )
     return BIO
 
+
 async def bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     context.user_data["bio"] = update.message.text
-    await update.message.reply_text("Telegram username yoki telefon raqamingizni yuboring 📞")
+
+    await update.message.reply_text(
+        "Telegram username yoki telefon raqamingizni yuboring 📞",
+        reply_markup=cancel_keyboard
+    )
     return CONTACT
 
+
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     user = update.effective_user
     context.user_data["contact"] = update.message.text
 
@@ -138,8 +187,12 @@ async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    await update.message.reply_text("✅ Profilingiz adminga yuborildi.")
+    await update.message.reply_text(
+        "✅ Profilingiz adminga yuborildi.",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return ConversationHandler.END
+
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -177,7 +230,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Summa: {CONTACT_PRICE} so‘m\n"
             f"Karta: {CARD_NUMBER}\n"
             f"Click telefon: {CLICK_PHONE}\n\n"
-            "To‘lov qilgandan keyin chek screenshotini shu yerga yuboring 📸"
+            "To‘lov qilgandan keyin chek screenshotini shu yerga yuboring 📸\n\n"
+            "Bekor qilish: ❌ Bekor qilish",
+            reply_markup=cancel_keyboard
         )
 
     elif data.startswith("payok_"):
@@ -238,7 +293,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+
 async def payment_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     girl_id = context.user_data.get("paying_girl_id")
 
     if not girl_id:
@@ -265,11 +324,22 @@ async def payment_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    await update.message.reply_text("✅ Chek adminga yuborildi. Tasdiqlanishini kuting.")
+    await update.message.reply_text(
+        "✅ Chek adminga yuborildi. Tasdiqlanishini kuting.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bekor qilindi.", reply_markup=ReplyKeyboardRemove())
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "❌ Amal bekor qilindi.\n\nQayta boshlash uchun /start bosing.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
     return ConversationHandler.END
+
 
 app = Application.builder().token(BOT_TOKEN).build()
 
@@ -278,16 +348,23 @@ conv_handler = ConversationHandler(
     states={
         GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, gender)],
         REGION: [MessageHandler(filters.TEXT & ~filters.COMMAND, region)],
-        PHOTO: [MessageHandler(filters.PHOTO, photo)],
+        PHOTO: [
+            MessageHandler(filters.TEXT & filters.Regex("❌ Bekor qilish"), cancel),
+            MessageHandler(filters.PHOTO, photo)
+        ],
         BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, bio)],
         CONTACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, contact)],
     },
-    fallbacks=[CommandHandler("cancel", cancel)],
+    fallbacks=[
+        CommandHandler("cancel", cancel),
+        MessageHandler(filters.TEXT & filters.Regex("❌ Bekor qilish"), cancel)
+    ],
 )
 
 app.add_handler(conv_handler)
 app.add_handler(CallbackQueryHandler(buttons))
 app.add_handler(MessageHandler(filters.PHOTO, payment_screenshot))
+app.add_handler(MessageHandler(filters.TEXT & filters.Regex("❌ Bekor qilish"), cancel))
 
 print("Bot ishga tushdi...")
 app.run_polling()
