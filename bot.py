@@ -309,8 +309,15 @@ async def delete_girl(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ Bunday ID topilmadi."
         )
-        async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+
+    await update.message.reply_text(
+        "❌ Amal bekor qilindi.\n\nQayta boshlash uchun /start bosing.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    return ConversationHandler.END
 
     await update.message.reply_text(
         "🔥 <b>Real tanishuv botiga xush kelibsiz!</b>\n\n"
