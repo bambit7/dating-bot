@@ -691,6 +691,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Application.builder().token(BOT_TOKEN).build()
 
 conv_handler = ConversationHandler(
+    allow_reentry=True,
     entry_points=[
         CommandHandler("start", start)
     ],
