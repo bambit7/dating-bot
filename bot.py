@@ -1,7 +1,9 @@
 import sqlite3
+
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackQueryHandler, ContextTypes, filters
-from config import BOT_TOKEN, ADMIN_ID, CONTACT_PRICE, CARD_NUMBER, CLICK_PHONE
+
+from config import BOT_TOKEN, ADMIN_ID, REQUIRED_CHATS
 
 GENDER, REGION, PHOTO, BIO, CONTACT = range(5)
 
@@ -74,6 +76,14 @@ def get_girl_contact(girl_id):
     return data
 
 
+def add_unlock_record(user_id, girl_id):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO purchases (boy_id, girl_id) VALUES (?, ?)", (user_id, girl_id))
+    conn.commit()
+    conn.close()
+
+
 def get_stats():
     conn = db()
     cur = conn.cursor()
@@ -82,10 +92,10 @@ def get_stats():
     girls_count = cur.fetchone()[0]
 
     cur.execute("SELECT COUNT(*) FROM purchases")
-    payments_count = cur.fetchone()[0]
+    unlock_count = cur.fetchone()[0]
 
     conn.close()
-    return girls_count, payments_count, payments_count * CONTACT_PRICE
+    return girls_count, unlock_count
 
 
 def profile_caption(name, age, region, bio):
@@ -96,7 +106,7 @@ def profile_caption(name, age, region, bio):
         f"📍 <b>Viloyat:</b> {region}\n"
         f"💬 <b>Bio:</b> {bio}\n\n"
         "🔐 <b>Kontakt:</b> Yashirin\n"
-        "💳 Kontaktni ochish uchun to‘lov qiling"
+        "📢 Kontaktni ko‘rish uchun kanallarga obuna bo‘ling"
     )
 
 
@@ -104,13 +114,12 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
-    girls_count, payments_count, total_money = get_stats()
+    girls_count, unlock_count = get_stats()
 
     await update.message.reply_text(
         "📊 <b>ADMIN STATISTIKA</b>\n\n"
         f"👧 Qiz profillari: <b>{girls_count}</b>\n"
-        f"💳 Tasdiqlangan to‘lovlar: <b>{payments_count}</b>\n"
-        f"💰 Tushum: <b>{total_money} so‘m</b>",
+        f"🔓 Ochilgan kontaktlar: <b>{unlock_count}</b>",
         parse_mode="HTML"
     )
 
@@ -177,7 +186,7 @@ async def region(update: Update, context: ContextTypes.DEFAULT_TYPE):
     girl_id, name, age, girl_region, bio, photo = girls[0]
 
     keyboard = [
-        [InlineKeyboardButton(f"💳 Kontaktni ochish — {CONTACT_PRICE} so‘m", callback_data=f"buy_{girl_id}")],
+        [InlineKeyboardButton("🔓 Kontaktni ochish", callback_data=f"unlock_{girl_id}")],
         [InlineKeyboardButton("➡️ Keyingisi", callback_data=f"next_{girl_region}_0")]
     ]
 
@@ -194,16 +203,18 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["photo"] = update.message.photo[-1].file_id
 
     await update.message.reply_text(
-        "📝 O‘zingiz haqingizda qisqa bio yozing.\n\n"
-        "Masalan: Salom, tanishishga ochiqman.",
+        "📝 Yilingizni va qanaqa uslugalar borligini yozing 😊",
         reply_markup=cancel_keyboard
     )
     return BIO
 
 
 async def bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     if len(update.message.text) < 5:
-        await update.message.reply_text("Bio juda qisqa. Kamida 5 ta belgi yozing.")
+        await update.message.reply_text("Bio juda qisqa. Qayta yozing.")
         return BIO
 
     context.user_data["bio"] = update.message.text
@@ -217,6 +228,9 @@ async def bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "❌ Bekor qilish":
+        return await cancel(update, context)
+
     contact_text = update.message.text.strip()
 
     if len(contact_text) < 5:
@@ -263,6 +277,31 @@ async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def check_subscription(context, user_id):
+    not_joined = []
+
+    for chat in REQUIRED_CHATS:
+        try:
+            member = await context.bot.get_chat_member(chat["chat_id"], user_id)
+            if member.status in ["left", "kicked"]:
+                not_joined.append(chat["name"])
+        except Exception:
+            not_joined.append(chat["name"])
+
+    return not_joined
+
+
+def subscription_keyboard(girl_id):
+    buttons = []
+
+    for chat in REQUIRED_CHATS:
+        buttons.append([InlineKeyboardButton(f"➕ {chat['name']}", url=chat["url"])])
+
+    buttons.append([InlineKeyboardButton("✅ Tekshirish", callback_data=f"checksub_{girl_id}")])
+
+    return InlineKeyboardMarkup(buttons)
+
+
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -290,51 +329,48 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if profile:
             await context.bot.send_message(profile["telegram_id"], "❌ Profilingiz rad etildi.")
 
-    elif data.startswith("buy_"):
+    elif data.startswith("unlock_"):
         girl_id = data.split("_")[1]
-        context.user_data["paying_girl_id"] = girl_id
 
         await query.message.reply_text(
-            "💳 <b>Click orqali to‘lov</b>\n\n"
-            f"💰 Summa: <b>{CONTACT_PRICE} so‘m</b>\n"
-            f"💳 Karta: <code>{CARD_NUMBER}</code>\n"
-            f"📱 Click telefon: <code>{CLICK_PHONE}</code>\n\n"
-            "To‘lov qilgandan keyin chek screenshotini yuboring 📸",
+            "🔒 <b>Kontaktni ochish uchun quyidagilarga qo‘shiling:</b>\n\n"
+            "1️⃣ 1-kanal\n"
+            "2️⃣ 2-kanal\n"
+            "3️⃣ 3-kanal\n"
+            "4️⃣ Guruh\n\n"
+            "Hammasiga qo‘shilgach ✅ Tekshirish tugmasini bosing.",
             parse_mode="HTML",
-            reply_markup=cancel_keyboard
+            reply_markup=subscription_keyboard(girl_id)
         )
 
-    elif data.startswith("payok_"):
-        _, user_id, girl_id = data.split("_")
+    elif data.startswith("checksub_"):
+        girl_id = data.split("_")[1]
+        user_id = query.from_user.id
+
+        not_joined = await check_subscription(context, user_id)
+
+        if not_joined:
+            await query.message.reply_text(
+                "❌ Siz hali hammasiga qo‘shilmagansiz.\n\n"
+                "Iltimos, barcha kanal va guruhga qo‘shiling, keyin qayta tekshiring.",
+                reply_markup=subscription_keyboard(girl_id)
+            )
+            return
+
         girl = get_girl_contact(girl_id)
 
         if not girl:
+            await query.message.reply_text("❌ Kontakt topilmadi.")
             return
 
         name, contact_info = girl
+        add_unlock_record(user_id, girl_id)
 
-        conn = db()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO purchases (boy_id, girl_id) VALUES (?, ?)", (user_id, girl_id))
-        conn.commit()
-        conn.close()
-
-        await context.bot.send_message(
-            chat_id=int(user_id),
-            text=f"✅ To‘lov tasdiqlandi!\n\n👧 {name}\n📞 Kontakt: {contact_info}"
+        await query.message.reply_text(
+            f"✅ Obuna tasdiqlandi!\n\n"
+            f"👧 {name}\n"
+            f"📞 Kontakt: {contact_info}"
         )
-
-        await query.edit_message_caption(caption="✅ To‘lov tasdiqlandi. Kontakt yuborildi.")
-
-    elif data.startswith("payno_"):
-        _, user_id, girl_id = data.split("_")
-
-        await context.bot.send_message(
-            chat_id=int(user_id),
-            text="❌ To‘lov rad etildi. Iltimos, to‘g‘ri chek yuboring."
-        )
-
-        await query.edit_message_caption(caption="❌ To‘lov rad etildi.")
 
     elif data.startswith("next_"):
         parts = data.split("_")
@@ -350,7 +386,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         girl_id, name, age, girl_region, bio, photo = girls[index]
 
         keyboard = [
-            [InlineKeyboardButton(f"💳 Kontaktni ochish — {CONTACT_PRICE} so‘m", callback_data=f"buy_{girl_id}")],
+            [InlineKeyboardButton("🔓 Kontaktni ochish", callback_data=f"unlock_{girl_id}")],
             [InlineKeyboardButton("➡️ Keyingisi", callback_data=f"next_{girl_region}_{index}")]
         ]
 
@@ -360,40 +396,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-
-async def payment_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    girl_id = context.user_data.get("paying_girl_id")
-
-    if not girl_id:
-        return
-
-    user = update.effective_user
-    photo_id = update.message.photo[-1].file_id
-
-    keyboard = [[
-        InlineKeyboardButton("✅ To‘lovni tasdiqlash", callback_data=f"payok_{user.id}_{girl_id}"),
-        InlineKeyboardButton("❌ Rad etish", callback_data=f"payno_{user.id}_{girl_id}")
-    ]]
-
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo_id,
-        caption=(
-            "💳 <b>YANGI TO‘LOV CHEKI</b>\n\n"
-            f"👤 User: {user.first_name}\n"
-            f"🆔 ID: {user.id}\n"
-            f"👧 Profil ID: {girl_id}\n"
-            f"💰 Summa: {CONTACT_PRICE} so‘m"
-        ),
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-    await update.message.reply_text(
-        "✅ Chek adminga yuborildi. Tasdiqlanishini kuting.",
-        reply_markup=ReplyKeyboardRemove()
-    )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -429,7 +431,6 @@ conv_handler = ConversationHandler(
 
 app.add_handler(conv_handler)
 app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(MessageHandler(filters.PHOTO, payment_screenshot))
 app.add_handler(CommandHandler("admin", admin_panel))
 app.add_handler(MessageHandler(filters.TEXT & filters.Regex("❌ Bekor qilish"), cancel))
 
