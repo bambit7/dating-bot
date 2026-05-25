@@ -312,6 +312,9 @@ async def delete_girl(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
+  async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
     await update.message.reply_text(
         "❌ Amal bekor qilindi.\n\nQayta boshlash uchun /start bosing.",
         reply_markup=ReplyKeyboardRemove()
